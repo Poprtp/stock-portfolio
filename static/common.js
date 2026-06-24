@@ -15,7 +15,7 @@ function toggleTheme() {
   localStorage.setItem('theme', next);
   applyTheme(next);
 }
-applyTheme(localStorage.getItem('theme') || 'dark');
+applyTheme(localStorage.getItem('theme') || 'light');
 
 // ---------- "x minutes ago" ----------
 function timeAgo(iso) {

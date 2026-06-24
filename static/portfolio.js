@@ -1,7 +1,9 @@
-// portfolio.js — trades, holdings, analysis
+// portfolio.js — trades, holdings, money in/out, analysis
 $('topbar').innerHTML = topbar('pf');
-applyTheme(localStorage.getItem('theme') || 'dark');
+applyTheme(localStorage.getItem('theme') || 'light');
 $('date').value = new Date().toISOString().slice(0, 10);
+
+function statCard(l, v, c) { return `<div class="stat"><div class="l">${l}</div><div class="v ${c || ''}">${v}</div></div>`; }
 
 async function loadTx() {
   const d = await (await fetch('/api/transactions')).json();
@@ -24,8 +26,13 @@ async function loadPositions() {
       <td class="${c}">${p.realized ? s + '$' + fmt(p.realized) : '-'}</td></tr>`;
   });
   $('postab').querySelector('tbody').innerHTML = h || '<tr><td colspan="4" style="color:var(--muted)">No holdings</td></tr>';
-  const rt = d.realized_total || 0, c = rt >= 0 ? 'green' : 'red', s = rt >= 0 ? '+' : '';
-  $('realized').innerHTML = `Total realized P/L: <span class="${c}">${s}$${fmt(rt)}</span>`;
+  const con = d.contributions || { invested: 0, proceeds: 0, net_invested: 0 };
+  const rt = d.realized_total || 0;
+  $('summary').innerHTML =
+    statCard('Money In (Buys)', '$' + fmt(con.invested)) +
+    statCard('Money Out (Sells)', '$' + fmt(con.proceeds)) +
+    statCard('Net Invested', '$' + fmt(con.net_invested)) +
+    statCard('Realized P/L', (rt >= 0 ? '+' : '') + '$' + fmt(rt), rt >= 0 ? 'green' : 'red');
 }
 async function addTx() {
   const body = {
@@ -33,9 +40,8 @@ async function addTx() {
     type: $('type').value, shares: $('shares').value, price: $('price').value
   };
   if (!body.ticker || !body.shares || !body.price) { alert('Please fill ticker, shares and price.'); return; }
-  const r = await fetch('/api/transactions/add', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const d = await r.json();
+  const d = await (await fetch('/api/transactions/add', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
   if (d.error) { alert(d.error); return; }
   $('ticker').value = $('shares').value = $('price').value = '';
   loadTx(); loadPositions();
@@ -46,8 +52,14 @@ async function rmTx(id) {
   loadTx(); loadPositions();
 }
 function pill(s) {
-  const c = s.includes('Bull') ? 'bull' : s.includes('Bear') ? 'bear' : 'neut';
+  const c = s === 'Bullish' ? 'bull' : s === 'Bearish' ? 'bear' : 'neut';
   return `<span class="pill ${c}">${s}</span>`;
+}
+function sig(s) {
+  if (!s) return 'Neutral';
+  if (s.includes('ขึ้น') || s.toLowerCase().includes('bull')) return 'Bullish';
+  if (s.includes('ลง') || s.toLowerCase().includes('bear')) return 'Bearish';
+  return 'Neutral';
 }
 async function analyze() {
   $('spin').style.display = 'inline';
@@ -67,13 +79,6 @@ async function analyze() {
     <td>${fmt(p.sharpe)}</td></tr>`; });
   $('rktab').querySelector('tbody').innerHTML = h;
 }
-// map Thai signal text from backend to English label
-function sig(s) {
-  if (!s) return 'Neutral';
-  if (s.includes('ขึ้น') || s.toLowerCase().includes('bull')) return 'Bullish';
-  if (s.includes('ลง') || s.toLowerCase().includes('bear')) return 'Bearish';
-  return 'Neutral';
-}
 window._reload = () => { loadTx(); loadPositions(); };
 loadTx(); loadPositions();
-startAutoRefresh(() => { loadPositions(); });
+startAutoRefresh(() => loadPositions());

@@ -1,8 +1,10 @@
-// dashboard.js — home dashboard
+// dashboard.js — home dashboard with rollercoaster P/L chart
 $('topbar').innerHTML = topbar('dash');
-applyTheme(localStorage.getItem('theme') || 'dark');
-let histC, pieC, barC, curRange = localStorage.getItem('range') || '30d', targetVal = 0;
-const COLORS = ['#8b7bff', '#34d399', '#f59e0b', '#fb7185', '#38bdf8', '#a855f7', '#2dd4bf', '#f472b6'];
+applyTheme(localStorage.getItem('theme') || 'light');
+let pieC, barC, curRange = localStorage.getItem('range') || '30d', targetVal = 0;
+let lastProfits = null, lastUp = true;
+const COLORS = ['#f0866f', '#2f7d92', '#27a567', '#e5544b', '#e0a44a', '#7a5cc0', '#46b3a3', '#d96fa0'];
+const css = v => getComputedStyle(document.body).getPropertyValue(v).trim() || '#888';
 
 [...$('seg').children].forEach(b => b.classList.toggle('on', b.dataset.r === curRange));
 
@@ -19,7 +21,7 @@ async function saveTarget() {
 }
 function updateProgress(value) {
   if (targetVal <= 0) {
-    $('prog').style.width = '0%'; $('prog').textContent = 'no target set';
+    $('prog').style.width = '0%'; $('prog').textContent = 'no target';
     $('targetnote').textContent = 'Enter a target value and press Save.'; return;
   }
   const pct = Math.min(100, value / targetVal * 100);
@@ -30,17 +32,26 @@ function updateProgress(value) {
     ? `$${fmt(left)} to reach your target of $${fmt(targetVal)}`
     : `🎉 Target reached! $${fmt(-left)} above goal`;
 }
+function statCard(l, v, c) { return `<div class="stat"><div class="l">${l}</div><div class="v ${c || ''}">${v}</div></div>`; }
+
 async function load() {
   $('spin').style.display = 'inline';
-  const d = await (await fetch('/api/history?range=' + curRange)).json();
+  const [d, pj] = await Promise.all([
+    (await fetch('/api/history?range=' + curRange)).json(),
+    (await fetch('/api/positions')).json()
+  ]);
   $('spin').style.display = 'none';
   if (d.error) { $('stats').innerHTML = `<div class="stat"><div class="l">${d.error}</div></div>`; return; }
   setUpdated(d.updated_at);
-  const cls = d.current_profit >= 0 ? 'green' : 'red', sg = d.current_profit >= 0 ? '+' : '';
-  $('stats').innerHTML = `
-    <div class="stat"><div class="l">Portfolio Value</div><div class="v">$${fmt(d.current_value)}</div></div>
-    <div class="stat"><div class="l">Total Cost</div><div class="v">$${fmt(d.total_cost)}</div></div>
-    <div class="stat"><div class="l">Unrealized P/L</div><div class="v ${cls}">${sg}$${fmt(d.current_profit)} (${sg}${d.profit_pct}%)</div></div>`;
+  const con = pj.contributions || { invested: 0, proceeds: 0 };
+  const rt = pj.realized_total || 0;
+  const up = d.current_profit >= 0, sg = d.current_profit >= 0 ? '+' : '';
+  $('stats').innerHTML =
+    statCard('Portfolio Value', '$' + fmt(d.current_value)) +
+    statCard('Money In (Buys)', '$' + fmt(con.invested)) +
+    statCard('Money Out (Sells)', '$' + fmt(con.proceeds)) +
+    statCard('Realized P/L', (rt >= 0 ? '+' : '') + '$' + fmt(rt), rt >= 0 ? 'green' : 'red') +
+    statCard('Unrealized P/L', `${sg}$${fmt(d.current_profit)} (${sg}${d.profit_pct}%)`, up ? 'green' : 'red');
   if (d.target != null) { targetVal = d.target; if (targetVal > 0 && !$('target').value) $('target').value = targetVal; }
   updateProgress(d.current_value);
 
@@ -51,30 +62,96 @@ async function load() {
       <td class="${c}">${s}${fmt(p.pnl)}</td><td class="${c}">${s}${fmt(p.pnl_pct)}%</td></tr>`; });
   $('htab').querySelector('tbody').innerHTML = h;
 
-  // history line
-  const up = d.current_profit >= 0;
-  if (histC) histC.destroy();
-  histC = new Chart($('hist'), { type: 'line',
-    data: { labels: d.labels, datasets: [{ label: 'Profit / Loss ($)', data: d.profit,
-      borderColor: up ? '#34d399' : '#fb7185',
-      backgroundColor: up ? 'rgba(52,211,153,.15)' : 'rgba(251,113,133,.15)',
-      fill: true, tension: .25, pointRadius: 0, borderWidth: 2 }] },
-    options: { plugins: { legend: { labels: { color: getComputedStyle(document.body).color } } },
-      scales: { x: { ticks: { color: '#93a0c2', maxTicksLimit: 8 } },
-        y: { ticks: { color: '#93a0c2', callback: v => '$' + v } } } } });
+  // rollercoaster
+  lastProfits = d.profit; lastUp = up;
+  drawCoaster();
 
-  // allocation + p/l charts
+  // allocation + p/l
   const labels = d.holdings.map(p => p.ticker);
   if (pieC) pieC.destroy(); if (barC) barC.destroy();
   pieC = new Chart($('pie'), { type: 'doughnut',
-    data: { labels, datasets: [{ data: d.holdings.map(p => p.market_value), backgroundColor: COLORS }] },
-    options: { plugins: { legend: { labels: { color: getComputedStyle(document.body).color } } } } });
+    data: { labels, datasets: [{ data: d.holdings.map(p => p.market_value), backgroundColor: COLORS,
+      borderColor: css('--ink'), borderWidth: 2 }] },
+    options: { plugins: { legend: { labels: { color: css('--text') } } } } });
   barC = new Chart($('bar'), { type: 'bar',
     data: { labels, datasets: [{ data: d.holdings.map(p => p.pnl),
-      backgroundColor: d.holdings.map(p => p.pnl >= 0 ? '#34d399' : '#fb7185') }] },
+      backgroundColor: d.holdings.map(p => p.pnl >= 0 ? css('--green') : css('--red')),
+      borderColor: css('--ink'), borderWidth: 2 }] },
     options: { plugins: { legend: { display: false } },
-      scales: { x: { ticks: { color: '#93a0c2' } }, y: { ticks: { color: '#93a0c2' } } } } });
+      scales: { x: { ticks: { color: css('--muted') } }, y: { ticks: { color: css('--muted') } } } } });
 }
+
+// ---- draw a rollercoaster-style track of the profit line ----
+function drawCoaster() {
+  const cv = $('hist'); if (!cv || !lastProfits) return;
+  const profits = lastProfits;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = cv.clientWidth || cv.parentElement.clientWidth || 600;
+  const cssH = 240;
+  cv.width = cssW * dpr; cv.height = cssH * dpr;
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  if (profits.length < 2) return;
+
+  const padL = 46, padR = 18, padT = 24, padB = 40;
+  const w = cssW - padL - padR, h = cssH - padT - padB;
+  const mn = Math.min(...profits), mx = Math.max(...profits), span = (mx - mn) || 1;
+  const X = i => padL + (i / (profits.length - 1)) * w;
+  const Y = v => padT + (1 - (v - mn) / span) * h;
+  const baseY = padT + h + 20;
+  const ink = css('--ink'), coral = css('--accent'), teal = css('--accent2');
+  const railCol = lastUp ? css('--green') : coral;
+  const pts = profits.map((v, i) => ({ x: X(i), y: Y(v) }));
+
+  // ground line
+  ctx.strokeStyle = ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(padL - 12, baseY); ctx.lineTo(cssW - padR, baseY); ctx.stroke();
+
+  // zero reference (dashed) if 0 within range
+  if (mn < 0 && mx > 0) {
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL, Y(0)); ctx.lineTo(cssW - padR, Y(0)); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = css('--muted'); ctx.font = "12px Quicksand, sans-serif";
+    ctx.fillText('$0', 6, Y(0) + 4);
+  }
+
+  // support posts (teal) at intervals
+  const step = Math.max(1, Math.floor(pts.length / 16));
+  ctx.strokeStyle = teal; ctx.lineWidth = 3;
+  for (let i = 0; i < pts.length; i += step) {
+    ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y + 6); ctx.lineTo(pts[i].x, baseY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pts[i].x - 5, baseY); ctx.lineTo(pts[i].x + 5, baseY); ctx.stroke();
+  }
+
+  // ladder track: two rails (offset vertically) + rungs
+  const g = 5;
+  const railPath = off => { ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y + off) : ctx.moveTo(p.x, p.y + off)); ctx.stroke(); };
+  ctx.strokeStyle = railCol; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.lineWidth = 3; railPath(-g); railPath(g);
+  ctx.lineWidth = 2;
+  for (let i = 0; i < pts.length; i += 1) {
+    ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y - g); ctx.lineTo(pts[i].x, pts[i].y + g); ctx.stroke();
+  }
+
+  // cart at the end
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = '#f4c64a'; ctx.strokeStyle = ink; ctx.lineWidth = 2;
+  const cw = 26, ch = 15;
+  roundRect(ctx, last.x - cw / 2, last.y - g - ch - 2, cw, ch, 4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = ink;
+  for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.arc(last.x + k * 7, last.y - g - ch - 4, 2.4, 0, 7); ctx.fill(); }
+
+  // last value label
+  ctx.fillStyle = railCol; ctx.font = "14px Knewave, cursive";
+  ctx.fillText((profits[profits.length - 1] >= 0 ? '+$' : '-$') + fmt(Math.abs(profits[profits.length - 1])), padL, padT - 8);
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
 $('seg').addEventListener('click', e => {
   if (e.target.dataset.r) {
     curRange = e.target.dataset.r;
@@ -83,5 +160,6 @@ $('seg').addEventListener('click', e => {
     load();
   }
 });
+window.addEventListener('resize', () => drawCoaster());
 window._reload = load;
 (async () => { await loadTarget(); load(); startAutoRefresh(() => load()); })();

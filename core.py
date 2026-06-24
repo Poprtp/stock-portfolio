@@ -142,6 +142,22 @@ def realized_total():
     return round(sum(compute_positions()[1].values()), 2)
 
 
+def contributions(df=None):
+    """แยกเงินที่ใส่เข้าพอร์ต (ซื้อ) กับเงินที่ถอนออก (ขาย)"""
+    if df is None:
+        df = read_tx()
+    inv = pro = 0.0
+    if not df.empty:
+        for _, r in df.iterrows():
+            amt = float(r["shares"]) * float(r["price"])
+            if r["type"] == "BUY":
+                inv += amt
+            else:
+                pro += amt
+    return {"invested": round(inv, 2), "proceeds": round(pro, 2),
+            "net_invested": round(inv - pro, 2)}
+
+
 # ---------------- target / cache ----------------
 def read_target():
     if os.path.exists(TARGET_FILE):
@@ -197,10 +213,13 @@ def compute_analyze(port, rf=0.04):
     tmv = float(pnl["market_value"].sum()) if not pnl.empty else 0
     tc = float(pnl["cost_value"].sum()) if not pnl.empty else 0
     realized = realized_total()
+    contrib = contributions()
     total = {"market_value": round(tmv, 2), "cost_value": round(tc, 2),
              "pnl": round(tmv - tc, 2),
              "pnl_pct": round((tmv / tc - 1) * 100, 1) if tc else 0,
-             "realized": realized}
+             "realized": realized,
+             "invested": contrib["invested"], "proceeds": contrib["proceeds"],
+             "net_invested": contrib["net_invested"]}
 
     def recs(df):
         return [{k: clean(v) for k, v in r.items()} for r in df.to_dict(orient="records")]

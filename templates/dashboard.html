@@ -11,48 +11,52 @@
 <div class="wrap">
   <div id="topbar"></div>
   <h1>Portfolio Dashboard</h1>
-  <div class="sub">Live overview of your profit, target progress and holdings — updates automatically.</div>
+  <div class="sub">Live overview of your money in/out, profit and holdings — updates automatically.</div>
 
   <div class="cards" id="stats"></div>
 
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h3 style="margin:0">Profit / Loss History</h3>
-      <div class="seg" id="seg">
+  <div class="win">
+    <div class="win-bar"><span>🎢 Profit / Loss History</span><span class="x">✕</span></div>
+    <div class="win-body">
+      <div class="seg" id="seg" style="margin-bottom:10px">
         <button data-r="1d">1D</button><button data-r="7d">7D</button>
         <button data-r="30d" class="on">30D</button><button data-r="90d">90D</button>
       </div>
+      <span class="spin" id="spin">Loading...</span>
+      <canvas id="hist" height="240"></canvas>
     </div>
-    <span class="spin" id="spin">Loading...</span>
-    <canvas id="hist" height="110"></canvas>
   </div>
 
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      <h3 style="margin:0">🎯 Target Value</h3>
-      <div class="row" style="margin:0">
+  <div class="win">
+    <div class="win-bar"><span>🎯 Target Value</span><span class="x">✕</span></div>
+    <div class="win-body">
+      <div class="row" style="margin-bottom:6px">
         <input id="target" type="number" placeholder="e.g. 10000" style="width:160px">
         <button onclick="saveTarget()">Save</button>
       </div>
+      <div class="bar"><div id="prog" style="width:0%">0%</div></div>
+      <div class="note" id="targetnote"></div>
     </div>
-    <div class="bar"><div id="prog" style="width:0%">0%</div></div>
-    <div class="note" id="targetnote"></div>
   </div>
 
   <div class="charts">
-    <div class="card"><h3 style="margin:0 0 12px">Allocation</h3><canvas id="pie"></canvas></div>
-    <div class="card"><h3 style="margin:0 0 12px">P/L by Stock</h3><canvas id="bar"></canvas></div>
+    <div class="win"><div class="win-bar"><span>Allocation</span><span class="x">✕</span></div>
+      <div class="win-body"><canvas id="pie"></canvas></div></div>
+    <div class="win"><div class="win-bar"><span>P/L by Stock</span><span class="x">✕</span></div>
+      <div class="win-body"><canvas id="bar"></canvas></div></div>
   </div>
 
-  <div class="card">
-    <h3 style="margin:0 0 12px">Holdings</h3>
-    <div class="tablewrap">
-      <table id="htab"><thead><tr><th>Ticker</th><th>Shares</th><th>Avg Cost</th>
-        <th>Price</th><th>Value</th><th>P/L</th><th>%</th></tr></thead><tbody></tbody></table>
+  <div class="win">
+    <div class="win-bar"><span>Holdings</span><span class="x">✕</span></div>
+    <div class="win-body">
+      <div class="tablewrap">
+        <table id="htab"><thead><tr><th>Ticker</th><th>Shares</th><th>Avg Cost</th>
+          <th>Price</th><th>Value</th><th>P/L</th><th>%</th></tr></thead><tbody></tbody></table>
+      </div>
     </div>
   </div>
 
-  <div class="note" style="text-align:center">Data from Yahoo Finance (may be delayed ~15 min) · For educational use, not investment advice.</div>
+  <div class="note" style="text-align:center">Data from Yahoo Finance (~15 min delay) · For educational use, not investment advice.</div>
 </div>
 <script src="/static/common.js"></script>
 <script src="/static/dashboard.js"></script>

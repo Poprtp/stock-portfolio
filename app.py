@@ -37,17 +37,8 @@ def get_password():
     return ""
 
 
-@app.before_request
-def require_login():
-    pw = get_password()
-    if not pw:
-        return
-    if request.path == "/api/status":   # keep-alive ping ไม่ต้องล็อกอิน
-        return
-    auth = request.authorization
-    if not auth or auth.password != pw:
-        return Response("Login required", 401,
-                        {"WWW-Authenticate": 'Basic realm="Portfolio"'})
+# Login disabled — the app is open (no password required).
+# (get_password is kept only so share.py can still run without errors.)
 
 
 # ---------------- background updater ----------------
@@ -113,7 +104,8 @@ def api_positions():
     rows = pos.to_dict(orient="records")
     for r in rows:
         r["realized"] = round(realized.get(r["ticker"], 0.0), 2)
-    return jsonify({"positions": rows, "realized_total": round(sum(realized.values()), 2)})
+    return jsonify({"positions": rows, "realized_total": round(sum(realized.values()), 2),
+                    "contributions": core.contributions()})
 
 
 # ---------------- API: target / status / refresh ----------------
