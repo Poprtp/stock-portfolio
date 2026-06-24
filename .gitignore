@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+cache.json
+share_link.html
+report.xlsx
+report.html
+cloudflared.exe

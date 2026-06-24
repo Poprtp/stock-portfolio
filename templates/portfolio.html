@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portfolio · Rollercoaster</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div id="topbar"></div>
+  <h1>Portfolio &amp; Trades</h1>
+  <div class="sub">Record real buy / sell trades — your holdings and average cost are calculated automatically.</div>
+
+  <div class="card">
+    <h3 style="margin:0 0 12px">Add a Trade</h3>
+    <div class="row">
+      <div><label>Date</label><input id="date" type="date"></div>
+      <div><label>Ticker</label><input id="ticker" placeholder="AAPL" style="width:110px"></div>
+      <div><label>Type</label>
+        <select id="type"><option value="BUY">Buy</option><option value="SELL">Sell</option></select></div>
+      <div><label>Shares</label><input id="shares" type="number" placeholder="10"></div>
+      <div><label>Price / share</label><input id="price" type="number" placeholder="180.5"></div>
+      <button onclick="addTx()">+ Add Trade</button>
+    </div>
+    <div class="note">Thai stocks: add .BK suffix (e.g. PTT.BK). Selling reduces your position at the weighted-average cost.</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 12px">Current Holdings</h3>
+    <div class="tablewrap">
+      <table id="postab"><thead><tr><th>Ticker</th><th>Shares</th><th>Avg Cost</th>
+        <th>Realized P/L</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="note" id="realized"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 12px">Trade History</h3>
+    <div class="tablewrap">
+      <table id="txtab"><thead><tr><th>Date</th><th>Ticker</th><th>Type</th>
+        <th>Shares</th><th>Price</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Analysis</h3>
+      <button class="ghost" onclick="analyze()">Run Analysis</button>
+    </div>
+    <span class="spin" id="spin">Loading...</span>
+    <div id="analysis" style="display:none">
+      <h3 style="margin:16px 0 8px">Trend</h3>
+      <div class="tablewrap"><table id="trtab"><thead><tr><th>Ticker</th><th>Price</th><th>SMA20</th>
+        <th>SMA50</th><th>RSI14</th><th>Signal</th></tr></thead><tbody></tbody></table></div>
+      <h3 style="margin:16px 0 8px">Risk</h3>
+      <div class="tablewrap"><table id="rktab"><thead><tr><th>Ticker</th><th>Annual Return%</th>
+        <th>Volatility%</th><th>Max DD%</th><th>Sharpe</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script src="/static/portfolio.js"></script>
+</body>
+</html>

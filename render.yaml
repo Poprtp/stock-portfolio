@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: stock-portfolio
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --timeout 120 --bind 0.0.0.0:$PORT
+    envVars:
+      # ตั้งรหัสผ่านเข้าเว็บ (กรอกค่าในหน้า Render ตอน deploy)
+      - key: DASH_PASSWORD
+        sync: false
+      # อัพเดตราคาทุกกี่วินาที (3600 = ทุก 1 ชม.)
+      - key: UPDATE_INTERVAL_SEC
+        value: "3600"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
