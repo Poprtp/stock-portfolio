@@ -10,7 +10,12 @@
 <div class="wrap">
   <div id="topbar"></div>
   <h1>Portfolio &amp; Trades</h1>
-  <div class="sub">Add (buy) or reduce (sell) your portfolio — money in / out and holdings are tracked separately.</div>
+  <div class="sub">Add (buy) or reduce (sell) your portfolio — money in / out and holdings are tracked separately. Use the selector at the top to switch between portfolios.</div>
+
+  <div class="row" style="margin-bottom:14px">
+    <button onclick="newPortfolio()">＋ New Portfolio</button>
+    <button class="ghost" onclick="delPortfolio()">🗑 Delete Current Portfolio</button>
+  </div>
 
   <div class="cards" id="summary"></div>
 

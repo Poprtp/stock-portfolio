@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-core.py — Backend logic: transactions, positions, analytics, cache
-Positions (current holdings) are DERIVED from a real buy/sell transaction log,
-using weighted-average cost basis. Realized P&L is tracked on sells.
+core.py — Backend logic: multi-portfolio transactions, positions, analytics, cache.
+Each transaction belongs to a named portfolio. Positions are DERIVED from the
+buy/sell log using weighted-average cost. Realized P&L is tracked on sells.
 """
 import os
 import json
@@ -15,13 +15,15 @@ import stock_bot as sb
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 TX_FILE = os.path.join(BASE, "transactions.csv")
-PORT_FILE = os.path.join(BASE, "portfolio.csv")   # legacy (used only to migrate)
+PORT_FILE = os.path.join(BASE, "portfolio.csv")        # legacy (migrate once)
+PORTFOLIOS_FILE = os.path.join(BASE, "portfolios.json")
 TARGET_FILE = os.path.join(BASE, "target.json")
 CACHE_FILE = os.path.join(BASE, "cache.json")
 
 RANGES = {"1d": ("1d", "5m"), "7d": ("7d", "60m"),
           "30d": ("1mo", "1d"), "90d": ("3mo", "1d")}
-TX_COLS = ["date", "ticker", "type", "shares", "price"]
+TX_COLS = ["date", "ticker", "type", "shares", "price", "portfolio"]
+DEFAULT_PF = "Main"
 
 
 def clean(o):
@@ -30,30 +32,85 @@ def clean(o):
     return o
 
 
+# ---------------- portfolios registry ----------------
+def _read_names():
+    if os.path.exists(PORTFOLIOS_FILE):
+        try:
+            n = json.load(open(PORTFOLIOS_FILE, encoding="utf-8")).get("names", [])
+            return [str(x) for x in n if str(x).strip()]
+        except Exception:
+            return []
+    return []
+
+
+def _write_names(names):
+    json.dump({"names": names}, open(PORTFOLIOS_FILE, "w", encoding="utf-8"), ensure_ascii=False)
+
+
+def list_portfolios():
+    names = _read_names()
+    df = _read_all_tx()
+    if not df.empty:
+        for n in df["portfolio"].dropna().unique():
+            if n not in names:
+                names.append(str(n))
+    if not names:
+        names = [DEFAULT_PF]
+    return names
+
+
+def add_portfolio(name):
+    name = str(name).strip()
+    if not name:
+        raise ValueError("empty name")
+    names = list_portfolios()
+    if name not in names:
+        names.append(name)
+        _write_names(names)
+    return names
+
+
+def remove_portfolio(name):
+    name = str(name).strip()
+    df = _read_all_tx()
+    if not df.empty:
+        df = df[df["portfolio"] != name]
+        _write_all_tx(df)
+    names = [n for n in list_portfolios() if n != name]
+    if not names:
+        names = [DEFAULT_PF]
+    _write_names(names)
+    return names
+
+
+def resolve_pf(pf):
+    names = list_portfolios()
+    pf = (pf or "").strip()
+    return pf if pf in names else names[0]
+
+
 # ---------------- transactions ----------------
-def _migrate_from_portfolio():
-    """ครั้งแรก: ถ้ายังไม่มี transactions.csv แต่มี portfolio.csv เดิม
-    ให้สร้างรายการซื้อ (BUY) จากหุ้นที่ถืออยู่ เพื่อไม่ให้ข้อมูลหาย"""
-    if os.path.exists(TX_FILE) or not os.path.exists(PORT_FILE):
-        return
-    try:
-        df = pd.read_csv(PORT_FILE)
-        df.columns = [c.strip().lower() for c in df.columns]
-        rows = []
-        today = date.today().isoformat()
-        for _, r in df.iterrows():
-            if float(r.get("shares", 0)) > 0:
-                rows.append({"date": today, "ticker": str(r["ticker"]).strip().upper(),
-                             "type": "BUY", "shares": float(r["shares"]),
-                             "price": float(r["cost_basis"])})
-        if rows:
-            pd.DataFrame(rows, columns=TX_COLS).to_csv(TX_FILE, index=False)
-    except Exception as e:
-        print("[migrate] skip:", e)
+def _migrate():
+    """Add portfolio column / import legacy portfolio.csv once."""
+    if not os.path.exists(TX_FILE) and os.path.exists(PORT_FILE):
+        try:
+            df = pd.read_csv(PORT_FILE)
+            df.columns = [c.strip().lower() for c in df.columns]
+            rows = []
+            today = date.today().isoformat()
+            for _, r in df.iterrows():
+                if float(r.get("shares", 0)) > 0:
+                    rows.append({"date": today, "ticker": str(r["ticker"]).strip().upper(),
+                                 "type": "BUY", "shares": float(r["shares"]),
+                                 "price": float(r["cost_basis"]), "portfolio": DEFAULT_PF})
+            if rows:
+                pd.DataFrame(rows, columns=TX_COLS).to_csv(TX_FILE, index=False)
+        except Exception as e:
+            print("[migrate] skip:", e)
 
 
-def read_tx():
-    _migrate_from_portfolio()
+def _read_all_tx():
+    _migrate()
     if not os.path.exists(TX_FILE):
         return pd.DataFrame(columns=TX_COLS)
     try:
@@ -63,54 +120,63 @@ def read_tx():
     if df.empty:
         return pd.DataFrame(columns=TX_COLS)
     df.columns = [c.strip().lower() for c in df.columns]
+    if "portfolio" not in df.columns:
+        df["portfolio"] = DEFAULT_PF
     for c in TX_COLS:
         if c not in df.columns:
             df[c] = None
+    df["portfolio"] = df["portfolio"].fillna(DEFAULT_PF).astype(str).str.strip().replace("", DEFAULT_PF)
     df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
     df["type"] = df["type"].astype(str).str.strip().str.upper()
     df["shares"] = pd.to_numeric(df["shares"], errors="coerce")
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
     df = df.dropna(subset=["ticker", "shares", "price"])
-    return df[TX_COLS].reset_index(drop=True)
+    return df[TX_COLS]
 
 
-def write_tx(df):
+def _write_all_tx(df):
     tmp = TX_FILE + ".tmp"
     df.to_csv(tmp, index=False)
     os.replace(tmp, TX_FILE)
 
 
-def add_tx(tx_date, ticker, ttype, shares, price):
+def read_tx(pf):
+    """Transactions for one portfolio (index = global id for delete)."""
+    df = _read_all_tx()
+    if df.empty:
+        return df
+    return df[df["portfolio"] == pf]
+
+
+def add_tx(pf, tx_date, ticker, ttype, shares, price):
+    pf = str(pf).strip() or DEFAULT_PF
     ticker = str(ticker).strip().upper()
     ttype = str(ttype).strip().upper()
     if ttype not in ("BUY", "SELL"):
         raise ValueError("type must be BUY or SELL")
     shares = float(shares); price = float(price)
     if shares <= 0 or price < 0:
-        raise ValueError("shares/price invalid")
+        raise ValueError("invalid")
     if not tx_date:
         tx_date = date.today().isoformat()
-    df = read_tx()
+    add_portfolio(pf)
+    df = _read_all_tx()
     nr = pd.DataFrame([{"date": tx_date, "ticker": ticker, "type": ttype,
-                        "shares": shares, "price": price}])
+                        "shares": shares, "price": price, "portfolio": pf}])
     df = nr if df.empty else pd.concat([df, nr], ignore_index=True)
     df = df.sort_values("date", kind="stable").reset_index(drop=True)
-    write_tx(df)
+    _write_all_tx(df)
 
 
-def remove_tx(idx):
-    df = read_tx()
-    if 0 <= idx < len(df):
-        df = df.drop(index=idx).reset_index(drop=True)
-        write_tx(df)
+def remove_tx(gid):
+    df = _read_all_tx()
+    if 0 <= gid < len(df):
+        _write_all_tx(df.drop(index=gid).reset_index(drop=True))
 
 
-# ---------------- positions (derived) ----------------
-def compute_positions(df=None):
-    """คืน (positions_df[ticker,shares,cost_basis], realized_pnl_dict)
-    ใช้ต้นทุนเฉลี่ยถ่วงน้ำหนัก (weighted-average cost)"""
-    if df is None:
-        df = read_tx()
+# ---------------- positions ----------------
+def compute_positions(pf):
+    df = read_tx(pf)
     pos, realized = {}, {}
     if not df.empty:
         df = df.sort_values("date", kind="stable")
@@ -119,7 +185,7 @@ def compute_positions(df=None):
             d = pos.setdefault(t, {"shares": 0.0, "cost": 0.0})
             if r["type"] == "BUY":
                 d["shares"] += q; d["cost"] += q * p
-            else:  # SELL
+            else:
                 if d["shares"] > 1e-9:
                     avg = d["cost"] / d["shares"]
                     sold = min(q, d["shares"])
@@ -133,19 +199,16 @@ def compute_positions(df=None):
     return pd.DataFrame(rows, columns=["ticker", "shares", "cost_basis"]), realized
 
 
-def read_positions():
-    """หุ้นที่ถืออยู่ตอนนี้ (ใช้แทน portfolio เดิม)"""
-    return compute_positions()[0]
+def read_positions(pf):
+    return compute_positions(pf)[0]
 
 
-def realized_total():
-    return round(sum(compute_positions()[1].values()), 2)
+def realized_total(pf):
+    return round(sum(compute_positions(pf)[1].values()), 2)
 
 
-def contributions(df=None):
-    """แยกเงินที่ใส่เข้าพอร์ต (ซื้อ) กับเงินที่ถอนออก (ขาย)"""
-    if df is None:
-        df = read_tx()
+def contributions(pf):
+    df = read_tx(pf)
     inv = pro = 0.0
     if not df.empty:
         for _, r in df.iterrows():
@@ -158,33 +221,41 @@ def contributions(df=None):
             "net_invested": round(inv - pro, 2)}
 
 
-# ---------------- target / cache ----------------
-def read_target():
-    if os.path.exists(TARGET_FILE):
+# ---------------- target / cache (per portfolio) ----------------
+def _read_json(path, default):
+    if os.path.exists(path):
         try:
-            return float(json.load(open(TARGET_FILE)).get("target", 0))
+            return json.load(open(path, encoding="utf-8"))
         except Exception:
-            return 0.0
-    return 0.0
+            return default
+    return default
 
 
-def write_target(v):
-    json.dump({"target": float(v)}, open(TARGET_FILE, "w"))
+def read_target(pf):
+    return float(_read_json(TARGET_FILE, {}).get(pf, 0) or 0)
+
+
+def write_target(pf, v):
+    d = _read_json(TARGET_FILE, {})
+    if not isinstance(d, dict):
+        d = {}
+    d[pf] = float(v)
+    json.dump(d, open(TARGET_FILE, "w", encoding="utf-8"))
 
 
 def read_cache():
-    if os.path.exists(CACHE_FILE):
-        try:
-            return json.load(open(CACHE_FILE, encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    c = _read_json(CACHE_FILE, {})
+    return c if isinstance(c, dict) else {}
 
 
 def write_cache(data):
     tmp = CACHE_FILE + ".tmp"
     json.dump(data, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
     os.replace(tmp, CACHE_FILE)
+
+
+def get_cache(pf):
+    return read_cache().get("portfolios", {}).get(pf, {})
 
 
 # ---------------- price fetch ----------------
@@ -201,7 +272,10 @@ def fetch_history_prices(tickers, period, interval):
 
 
 # ---------------- analytics ----------------
-def compute_analyze(port, rf=0.04):
+def compute_analyze(pf, rf=0.04):
+    port = read_positions(pf)
+    if port.empty:
+        return None
     prices = sb.fetch_prices(port["ticker"].tolist(), "1y")
     if prices is None or prices.empty:
         return None
@@ -212,14 +286,13 @@ def compute_analyze(port, rf=0.04):
     summary = sb.portfolio_risk(prices, weights, rf)
     tmv = float(pnl["market_value"].sum()) if not pnl.empty else 0
     tc = float(pnl["cost_value"].sum()) if not pnl.empty else 0
-    realized = realized_total()
-    contrib = contributions()
+    con = contributions(pf)
     total = {"market_value": round(tmv, 2), "cost_value": round(tc, 2),
              "pnl": round(tmv - tc, 2),
              "pnl_pct": round((tmv / tc - 1) * 100, 1) if tc else 0,
-             "realized": realized,
-             "invested": contrib["invested"], "proceeds": contrib["proceeds"],
-             "net_invested": contrib["net_invested"]}
+             "realized": realized_total(pf),
+             "invested": con["invested"], "proceeds": con["proceeds"],
+             "net_invested": con["net_invested"]}
 
     def recs(df):
         return [{k: clean(v) for k, v in r.items()} for r in df.to_dict(orient="records")]
@@ -228,7 +301,10 @@ def compute_analyze(port, rf=0.04):
             "summary": {k: clean(v) for k, v in summary.items()}, "total": total}
 
 
-def compute_history(port, rng):
+def compute_history(pf, rng):
+    port = read_positions(pf)
+    if port.empty:
+        return None
     period, interval = RANGES.get(rng, RANGES["30d"])
     tickers = port["ticker"].tolist()
     shares = dict(zip(port["ticker"], port["shares"]))
@@ -263,19 +339,22 @@ def compute_history(port, rng):
 
 
 def refresh_cache():
-    port = read_positions()
-    if port.empty:
-        write_cache({"updated_at": datetime.now(timezone.utc).isoformat(), "empty": True})
-        return
-    try:
-        analyze = compute_analyze(port)
-        history = {}
-        for rng in RANGES:
-            try:
-                history[rng] = compute_history(port, rng)
-            except Exception:
-                history[rng] = None
-        write_cache({"updated_at": datetime.now(timezone.utc).isoformat(),
-                     "empty": False, "analyze": analyze, "history": history})
-    except Exception as e:
-        print("[refresh_cache] error:", e)
+    out = {"portfolios": {}}
+    for pf in list_portfolios():
+        port = read_positions(pf)
+        if port.empty:
+            out["portfolios"][pf] = {"updated_at": datetime.now(timezone.utc).isoformat(), "empty": True}
+            continue
+        try:
+            history = {}
+            for rng in RANGES:
+                try:
+                    history[rng] = compute_history(pf, rng)
+                except Exception:
+                    history[rng] = None
+            out["portfolios"][pf] = {"updated_at": datetime.now(timezone.utc).isoformat(),
+                                     "empty": False, "analyze": compute_analyze(pf), "history": history}
+        except Exception as e:
+            print("[refresh_cache]", pf, e)
+            out["portfolios"][pf] = {"updated_at": datetime.now(timezone.utc).isoformat(), "empty": True}
+    write_cache(out)
